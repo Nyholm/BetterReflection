@@ -49,22 +49,35 @@ final class MakeLocatorForComposerJson
         }
 
         $pathPrefix          = $realInstallationPath . '/';
+        $pathsToExclude      = $this->excludedPaths($composer, $pathPrefix);
+        $excludeFilter     = function (array $paths) use ($pathsToExclude) {
+            return array_filter($paths, function ($path) use ($pathsToExclude) {
+                foreach ($pathsToExclude as $exclude) {
+                    if (0 === strpos($path, $pathsToExclude)) {
+                        return false;
+                    }
+                }
+
+                return true;
+            });
+        };
+
         $classMapPaths       = $this->prefixPaths($this->packageToClassMapPaths($composer), $pathPrefix);
-        $classMapFiles       = array_filter($classMapPaths, 'is_file');
-        $classMapDirectories = array_filter($classMapPaths, 'is_dir');
+        $classMapFiles       = $excludeFilter(array_filter($classMapPaths, 'is_file'));
+        $classMapDirectories = $excludeFilter(array_filter($classMapPaths, 'is_dir'));
         $filePaths           = $this->prefixPaths($this->packageToFilePaths($composer), $pathPrefix);
 
         return new AggregateSourceLocator(array_merge(
             [
                 new PsrAutoloaderLocator(
                     Psr4Mapping::fromArrayMappings(
-                        $this->prefixWithInstallationPath($this->packageToPsr4AutoloadNamespaces($composer), $pathPrefix)
+                        $excludeFilter($this->prefixWithInstallationPath($this->packageToPsr4AutoloadNamespaces($composer), $pathPrefix))
                     ),
                     $astLocator
                 ),
                 new PsrAutoloaderLocator(
                     Psr0Mapping::fromArrayMappings(
-                        $this->prefixWithInstallationPath($this->packageToPsr0AutoloadNamespaces($composer), $pathPrefix)
+                        $excludeFilter($this->prefixWithInstallationPath($this->packageToPsr0AutoloadNamespaces($composer), $pathPrefix))
                     ),
                     $astLocator
                 ),
@@ -142,5 +155,22 @@ final class MakeLocatorForComposerJson
         return array_map(static function (string $path) use ($prefix) {
             return $prefix . $path;
         }, $paths);
+    }
+
+    /**
+     * @param mixed[] $package
+     *
+     * @return array<int, string>
+     */
+    private function excludedPaths(array $package, string $prefix): array
+    {
+        $vendorFolder = $prefix.($package['config']['vendor-dir'] ?? 'vendor');
+        $vendorFolder = rtrim($vendorFolder, '/'). '/';
+
+        $exclude = [$vendorFolder];
+
+        // TODO look at $package['autoload']['exclude-from-classmap'];
+
+        return $exclude;
     }
 }
